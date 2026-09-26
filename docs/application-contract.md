@@ -50,3 +50,68 @@ stored with `invoice_no = X`, and no records stored with a different identifier.
 ---
 
 *End of contract for Scenario 1.*
+
+---
+
+**Scenario 2 — Source-Identity Idempotence and Batch Atomicity**
+
+This section extends the contract with requirements governing how the application
+must handle repeated or conflicting `source_record_id` values and multi-record
+batch semantics.
+
+---
+
+## AC-004 — Exact replay safety
+
+`source_record_id` identifies **one source line item** within the frozen import
+source.
+
+Re-importing the same `source_record_id` with **identical** record contents
+**must not** create another stored row.
+
+**Observable requirement:** After a record with `source_record_id = X` is
+imported, importing that same record again (all fields byte-for-byte identical)
+must leave exactly one stored row for `source_record_id = X`.
+
+---
+
+## AC-005 — Source identity conflict
+
+If an already-seen `source_record_id` is supplied again with **different** record
+contents, the application **must fail clearly**.
+
+It **must not** silently ignore, overwrite, merge, or replace the existing record.
+
+**Observable requirement:** Attempting to import a record whose `source_record_id`
+matches a previously stored row but whose other fields differ must raise an error
+that is visible to the caller. The original stored row must remain unchanged after
+the attempt.
+
+---
+
+## AC-006 — Equal business values do not imply duplicate identity
+
+Two records with **different** `source_record_id` values **must both be
+preserved** even if all business fields (`invoice_no`, `stock_code`, `quantity`,
+`unit_price`) are otherwise identical.
+
+**Observable requirement:** Importing two records that share every business field
+but carry distinct `source_record_id` values must result in two independently
+retrievable stored rows.
+
+---
+
+## AC-007 — Batch atomicity
+
+`import_records()` **must behave atomically**.
+
+If any record in a batch fails validation or violates source-identity semantics,
+no records **newly inserted** by that batch may remain persisted.
+
+**Observable requirement:** After a batch import that fails partway through, the
+set of stored rows must be identical to the set that existed before the batch
+was invoked.
+
+---
+
+*End of contract for Scenario 2.*
