@@ -1,0 +1,59 @@
+{
+  "execution_id": "fae0e1d9-b45a-475c-8dbc-e384fcdd32e6",
+  "phase": "verification",
+  "started_at": "2026-09-26T08:46:10.259731+00:00",
+  "duration_ms": 286,
+  "exit_code": 0,
+  "outcome": "passed",
+  "pytest_targets": [
+    "tests/existing"
+  ],
+  "application_snapshot": "a0efceb71f4b664c039a14166eecf71d80825798c526a758c7a65ca8c5f7a4c1",
+  "protected_manifest": {
+    "ok": true,
+    "missing": [],
+    "modified": []
+  },
+  "environment_manifest": "runs/rc-001/fae0e1d9-b45a-475c-8dbc-e384fcdd32e6/environment.json",
+  "stdout": "runs/rc-001/fae0e1d9-b45a-475c-8dbc-e384fcdd32e6/stdout.txt",
+  "stderr": "runs/rc-001/fae0e1d9-b45a-475c-8dbc-e384fcdd32e6/stderr.txt",
+  "structured_results": {
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "time": "0.018",
+    "cases": [
+      {
+        "classname": "tests.existing.test_happy_path",
+        "name": "test_single_line_item_import",
+        "status": "passed",
+        "time": "0.001"
+      },
+      {
+        "classname": "tests.existing.test_happy_path",
+        "name": "test_stored_contents_retrievable",
+        "status": "passed",
+        "time": "0.001"
+      },
+      {
+        "classname": "tests.existing.test_happy_path",
+        "name": "test_multiple_line_items_same_invoice",
+        "status": "passed",
+        "time": "0.001"
+      },
+      {
+        "classname": "tests.existing.test_happy_path",
+        "name": "test_stored_invoice_identifiers_match_expected",
+        "status": "passed",
+        "time": "0.002"
+      },
+      {
+        "classname": "tests.existing.test_happy_path",
+        "name": "test_lookup_returns_only_matching_invoice",
+        "status": "passed",
+        "time": "0.003"
+      }
+    ]
+  }
+}

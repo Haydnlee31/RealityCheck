@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: /Users/haydn/Documents/RealityCheck
+configfile: pyproject.toml
+plugins: anyio-4.10.0, Flask-Dance-7.1.0
+collected 5 items
+
+tests/existing/test_happy_path.py .....                                  [100%]
+
+- generated xml file: /Users/haydn/Documents/RealityCheck/runs/rc-001/fae0e1d9-b45a-475c-8dbc-e384fcdd32e6/junit.xml -
+============================== 5 passed in 0.02s ===============================

@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: /Users/haydn/Documents/RealityCheck
+configfile: pyproject.toml
+plugins: anyio-4.10.0, Flask-Dance-7.1.0
+collected 1 item
+
+tests/regression/test_rc001_invoice_no_preservation.py .                 [100%]
+
+- generated xml file: /Users/haydn/Documents/RealityCheck/runs/rc-001/5fb09aa4-2f09-4ff5-83ef-ca717c023f6b/junit.xml -
+============================== 1 passed in 0.01s ===============================

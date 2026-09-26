@@ -1,0 +1,51 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: /Users/haydn/Documents/RealityCheck
+configfile: pyproject.toml
+plugins: anyio-4.10.0, Flask-Dance-7.1.0
+collected 1 item
+
+tests/regression/test_rc001_invoice_no_preservation.py F                 [100%]
+
+=================================== FAILURES ===================================
+____________________ test_leading_zero_invoice_no_preserved ____________________
+
+db_conn = <sqlite3.Connection object at 0x102edff10>
+
+    def test_leading_zero_invoice_no_preserved(db_conn):
+        """
+        AC-001: invoice_no with a leading zero must survive ingestion unchanged.
+    
+        Counterexample: invoice_no="053636" — str(int("053636")) produces "53636",
+        which is a byte-for-byte different identifier.  The stored value must equal
+        "053636" and a lookup by "053636" must return exactly this record.
+    
+        Expected failure on unmodified application: _normalize() in importer.py
+        applies str(int(...)) which strips the leading zero, so the lookup by
+        "053636" returns zero rows and the len assertion fails.
+        """
+        record = {
+            "source_record_id": "rc-001",
+            "invoice_no": "053636",
+            "stock_code": "ABC",
+            "quantity": 1,
+            "unit_price": 1.00,
+        }
+    
+        importer.import_record(db_conn, record)
+    
+        # Lookup must succeed with the original identifier
+        results = database.get_line_items_by_invoice(db_conn, "053636")
+>       assert len(results) == 1, (
+            "Lookup by original invoice_no='053636' returned no rows — "
+            "identifier was likely mutated during import"
+        )
+E       AssertionError: Lookup by original invoice_no='053636' returned no rows — identifier was likely mutated during import
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/regression/test_rc001_invoice_no_preservation.py:62: AssertionError
+- generated xml file: /Users/haydn/Documents/RealityCheck/runs/rc-001/df96ba74-10dd-4505-87e7-b7136736d835/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/regression/test_rc001_invoice_no_preservation.py::test_leading_zero_invoice_no_preserved
+============================== 1 failed in 0.02s ===============================
