@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: /Users/haydn/Documents/RealityCheck
+configfile: pyproject.toml
+plugins: anyio-4.10.0, Flask-Dance-7.1.0
+collected 3 items
+
+tests/regression/test_rc003_source_identity_semantics.py ...             [100%]
+
+- generated xml file: /Users/haydn/Documents/RealityCheck/runs/rc-002/8fc097e1-07f1-46ec-b558-8cdf84e7a95f/junit.xml -
+============================== 3 passed in 0.01s ===============================

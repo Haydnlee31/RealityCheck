@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="0.012" timestamp="2026-09-26T18:09:02.583132+08:00" hostname="Lees-Laptop.local"><testcase classname="tests.regression.test_rc002_batch_atomicity" name="test_failed_batch_leaves_no_partial_rows" time="0.002" /></testsuite></testsuites>

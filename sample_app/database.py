@@ -3,7 +3,7 @@ Thin SQLite persistence layer for retail transaction line items.
 """
 
 import sqlite3
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -33,8 +33,24 @@ def init_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def get_line_item_by_source_id(
+    conn: sqlite3.Connection, source_record_id: str
+) -> Optional[Dict[str, Any]]:
+    """Return the stored line item for *source_record_id*, or None if absent."""
+    cursor = conn.execute(
+        "SELECT * FROM line_items WHERE source_record_id = ?",
+        (source_record_id,),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row is not None else None
+
+
 def insert_line_item(conn: sqlite3.Connection, record: Dict[str, Any]) -> int:
-    """Insert one line-item record and return its generated row id."""
+    """Insert one line-item record and return its generated row id.
+
+    Does NOT commit.  The caller is responsible for committing or rolling back
+    the enclosing transaction.
+    """
     cursor = conn.execute(
         """
         INSERT INTO line_items
@@ -44,7 +60,6 @@ def insert_line_item(conn: sqlite3.Connection, record: Dict[str, Any]) -> int:
         """,
         record,
     )
-    conn.commit()
     return cursor.lastrowid
 
 

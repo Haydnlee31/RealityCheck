@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "run_id": "rc-002",
+  "finding_id": "RC-002",
+  "requirement": {
+    "id": "AC-007",
+    "text": "import_records() must behave atomically. If any record in a batch fails validation or violates source-identity semantics, no records newly inserted by that batch may remain persisted. Observable requirement: After a batch import that fails partway through, the set of stored rows must be identical to the set that existed before the batch was invoked.",
+    "classification": "documented",
+    "sources": [
+      {
+        "kind": "application-contract",
+        "artifact": "docs/application-contract.md",
+        "locator": "Lines 104–113, section 'AC-007 — Batch atomicity'",
+        "excerpt": "import_records() must behave atomically. If any record in a batch fails validation or violates source-identity semantics, no records newly inserted by that batch may remain persisted."
+      }
+    ]
+  },
+  "assumption": {
+    "description": "import_records() was a bare list comprehension over import_record() calls. insert_line_item() committed after every individual INSERT. There was no BEGIN/ROLLBACK envelope. A failure on the N-th record left records 1..N-1 permanently committed.",
+    "code_artifact": "sample_app/importer.py",
+    "symbol": "import_records"
+  },
+  "counterexample": {
+    "kind": "input-record",
+    "fixture": null,
+    "record_ids": ["batch-new-001", "batch-new-002", "batch-bad-003"],
+    "expected_behavior": "After import_records() raises KeyError('unit_price') on the third record, a lookup for invoice_no='INV-BATCH' must return 0 rows. The pre-existing row for 'INV-EXIST' must remain unchanged."
+  },
+  "acceptance": {
+    "decision": "accepted",
+    "reviewer": "developer (explicit ACCEPT reply)",
+    "timestamp": "2026-09-26T10:00:00+00:00",
+    "protected_manifest": "runs/rc-002/protected-manifest.json"
+  },
+  "regression": {
+    "test_artifact": "tests/regression/test_rc002_batch_atomicity.py",
+    "node_ids": [
+      "tests/regression/test_rc002_batch_atomicity.py::test_failed_batch_leaves_no_partial_rows"
+    ],
+    "expected_failure": "AssertionError: AC-007 violated — 2 record(s) from the failed batch remain persisted: ['batch-new-001', 'batch-new-002']"
+  },
+  "executions": {
+    "reproduction": {
+      "execution_id": "07b5f2b6-5034-4d48-ae44-6b0f761a696e",
+      "phase": "reproduction",
+      "outcome": "failed",
+      "artifact_dir": "runs/rc-002/07b5f2b6-5034-4d48-ae44-6b0f761a696e"
+    },
+    "verification": {
+      "execution_id": "2bc00fd9-68ae-4246-ad39-4f94dfefd59f",
+      "phase": "verification",
+      "outcome": "passed",
+      "artifact_dir": "runs/rc-002/2bc00fd9-68ae-4246-ad39-4f94dfefd59f"
+    },
+    "baseline": {
+      "execution_id": "81715fe2-3ecd-4047-90ff-fba8c105b325",
+      "phase": "verification",
+      "outcome": "passed",
+      "artifact_dir": "runs/rc-002/81715fe2-3ecd-4047-90ff-fba8c105b325"
+    }
+  },
+  "repair": {
+    "base_snapshot": "a0efceb71f4b664c039a14166eecf71d80825798c526a758c7a65ca8c5f7a4c1",
+    "candidate_snapshot": "a2beaf7c291ec84f012f65c37006432909e1fc2b87d3e1d59957bfd62f33b395",
+    "patch": "--- a/sample_app/importer.py\n+++ b/sample_app/importer.py\n@@ import_records:\n-    return [import_record(conn, r) for r in records]\n+    conn.execute(\"BEGIN\")\n+    try:\n+        for record in records: ...\n+    except Exception:\n+        conn.rollback()\n+        raise\n+    conn.commit()\n+    return row_ids\n--- a/sample_app/database.py\n+++ b/sample_app/database.py\n@@ insert_line_item:\n-    conn.commit()\n     return cursor.lastrowid"
+  },
+  "verdict": {
+    "status": "verified_for_tested_scenarios",
+    "reason": "Verification execution passed all required tests",
+    "limitations": [
+      "Verdict covers only the tested scenarios — not all contract requirements.",
+      "The counterexample uses a missing-field KeyError as the batch-failure trigger. After AC-005 is implemented, a source-identity conflict is also a valid trigger."
+    ]
+  }
+}
