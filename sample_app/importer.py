@@ -13,10 +13,9 @@ from sample_app import database
 
 def _normalize(record: Dict[str, Any]) -> Dict[str, Any]:
     """Return a normalized copy of *record* ready for storage."""
-    normalized_invoice = str(int(record["invoice_no"]))
     return {
         "source_record_id": str(record["source_record_id"]),
-        "invoice_no": normalized_invoice,
+        "invoice_no": str(record["invoice_no"]),
         "stock_code": str(record["stock_code"]),
         "quantity": int(record["quantity"]),
         "unit_price": float(record["unit_price"]),
