@@ -1,0 +1,11 @@
+{
+  "fixtures": [
+    {
+      "file": "development.jsonl",
+      "provenance_type": "synthetic",
+      "purpose": "Development fixture — small set of numeric invoice line items used by the baseline test suite.",
+      "source": null,
+      "notes": "Hand-authored synthetic records. Not derived from or representative of any row in the UCI Online Retail workbook."
+    }
+  ]
+}

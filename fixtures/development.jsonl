@@ -1,0 +1,5 @@
+{"source_record_id": "dev-001", "invoice_no": "536365", "stock_code": "85123A", "quantity": 6, "unit_price": 2.55}
+{"source_record_id": "dev-002", "invoice_no": "536365", "stock_code": "71053", "quantity": 6, "unit_price": 3.39}
+{"source_record_id": "dev-003", "invoice_no": "536365", "stock_code": "84406B", "quantity": 8, "unit_price": 2.75}
+{"source_record_id": "dev-004", "invoice_no": "536366", "stock_code": "22752", "quantity": 2, "unit_price": 1.85}
+{"source_record_id": "dev-005", "invoice_no": "536367", "stock_code": "84879", "quantity": 32, "unit_price": 1.69}
