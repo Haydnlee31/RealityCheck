@@ -31,8 +31,8 @@ RealityCheck addresses that gap.
 
 ## How RealityCheck uses IBM Bob IDE
 
-RealityCheck is implemented as a **Bob skill** (`SKILL.md`) that guides Bob
-through a structured, multi-stage workflow:
+RealityCheck is implemented as a **Bob skill** (`SKILL.md`) — a structured
+instruction set that guides Bob through a fixed multi-stage workflow:
 
 ### Parallel investigation (subagents)
 Bob spawns two independent read-only subagent investigators simultaneously:
@@ -47,14 +47,22 @@ separating model interpretation from deterministic observation.
 
 ### Human acceptance checkpoint (mandatory)
 The workflow **stops** after presenting the proposed finding to the developer.
-No file is written and no test runs until the developer replies `ACCEPT`.
 The acceptance decision — including the reviewer identity and timestamp — is
 recorded in the evidence JSON for every run.
 
+Baseline executions and their artifacts may be written before the acceptance
+checkpoint (to establish a passing baseline).  Candidate regression tests are
+neither written to disk nor frozen until after the developer replies `ACCEPT`;
+repair evidence is likewise gated by acceptance.
+
 ### Bounded, agent-driven repair
 After acceptance, Bob applies the smallest repair to `sample_app/` that
-satisfies the accepted regression test, without touching protected inputs,
-the test suite, or the contract documents.
+satisfies the accepted regression test.  The skill instructs Bob not to modify
+protected inputs, the test suite, or the contract documents; these constraints
+are also enforced deterministically by `realitycheck.runner`:
+protected-manifest verification records SHA-256 hashes of every protected file,
+and any modification causes `compute_verdict` to block rather than emit
+`verified_for_tested_scenarios`.
 
 ### Deterministic verification
 All execution results — pass/fail, exit codes, test counts, application snapshot
@@ -258,6 +266,146 @@ Run the full regression suite:
 ```bash
 pytest tests/existing/ tests/regression/
 ```
+
+Run the tooling unit tests (runner + report):
+
+```bash
+pytest tests/tooling/
+```
+
+Run the complete test suite (all three suites):
+
+```bash
+pytest tests/existing/ tests/regression/ tests/tooling/
+```
+
+---
+
+## Judge / evaluator instructions
+
+### Invoking the RealityCheck skill in Bob IDE
+
+1. Open this repository in IBM Bob IDE.
+2. Start a new Agent task.
+3. At the top of your message, or as your first message, write:
+
+   ```
+   /realitycheck
+   ```
+
+   Bob will load the skill (`SKILL.md`) and begin the eleven-stage workflow.
+   The skill instructs the workflow to stop unconditionally at Stage 4 for
+   human acceptance.  Baseline executions may be written before that point;
+   candidate regression tests and repair evidence are gated by the `ACCEPT`
+   reply.  Specific verification invariants — protected-manifest integrity,
+   per-node reproduction status, and post-repair pass requirements — are
+   enforced deterministically by `realitycheck.runner.compute_verdict`,
+   not by model reasoning.
+
+### Running the complete test suite
+
+```bash
+pip install -e ".[dev]"
+pytest tests/existing/ tests/regression/ tests/tooling/ -v
+```
+
+All suites must pass before the verdict `verified_for_tested_scenarios` is
+meaningful.  The tooling suite in particular covers `compute_verdict` and all
+11 audit-hardening enforcement rules.
+
+### Regenerating reports from stored evidence
+
+```python
+import json
+from realitycheck.report import generate_report
+
+for path, out in [
+    ("runs/rc-001/evidence.json",        "runs/rc-001/report-regenerated.md"),
+    ("runs/rc-002/evidence-rc002.json",  "runs/rc-002/report-rc-002-regenerated.md"),
+    ("runs/rc-002/evidence-rc003.json",  "runs/rc-002/report-rc-003-regenerated.md"),
+]:
+    evidence = json.loads(open(path).read())
+    open(out, "w").write(generate_report(evidence))
+```
+
+The regenerated reports will differ from the originals only in formatting
+improvements made since the original runs.  Evidence content is unchanged.
+
+### Understanding and reproducing historical runs via Git checkpoints
+
+Each completed run corresponds to a Git tag where the application, test files,
+and evidence artifacts are all at their verified state:
+
+| Tag | Description | Application snapshot |
+|---|---|---|
+| `scenario1-baseline` | Unmodified application before RC-001 | `3e7416b5…` |
+| `ac001-control` | Bob-only control repair (no RealityCheck) | — |
+| `realitycheck-infra` | RealityCheck tooling added | — |
+| `rc001-verified` | RC-001 repair verified | `a0efceb7…` |
+| `scenario2-baseline` | Pre-Scenario-2 baseline (RC-001 repair in place) | `a0efceb7…` |
+| `rc002-verified` | RC-002 + RC-003 repairs verified | `a2beaf7c…` |
+| `submission-candidate` | Submission checkpoint — complete patches for Scenario 2 are recoverable from `scenario2-baseline` and `rc002-verified` via `git diff` | — |
+
+To check out the application at the state when RC-001 was verified:
+
+```bash
+git checkout rc001-verified
+```
+
+**Important:** historical protected manifests record the file hashes at their
+contemporaneous checkpoint.  Running `verify_protected_manifest` against a
+manifest from an earlier run will reflect the hashes at that run's checkpoint,
+not necessarily the current HEAD.
+
+To inspect a repair diff without running any code:
+
+```bash
+# RC-001 repair
+git diff scenario1-baseline rc001-verified -- sample_app/
+
+# Scenario 2 (RC-002 + RC-003) repairs
+git diff scenario2-baseline rc002-verified -- sample_app/
+```
+
+### Running tooling tests
+
+```bash
+pytest tests/tooling/ -v
+```
+
+The tooling suite covers `compute_verdict` with 45 verdict tests. Every
+enforcement rule is covered, including bypass probes for omitted or empty
+`required_node_ids`, wrong-file exact-match, missing/unparseable reproduction
+results, reproduction infrastructure error, reproduction required-node skipped,
+and an internally inconsistent baseline outcome.
+
+### Locating evaluation documentation
+
+Full evaluation against the eight hackathon criteria:
+[`docs/evaluation.md`](docs/evaluation.md)
+
+### Locating Bob session screenshots
+
+Bob IDE task-summary screenshots (Bobcoin usage evidence):
+[`bob_sessions/`](bob_sessions/)
+
+Each screenshot filename corresponds to the Bobcoin table row in
+`docs/evaluation.md` Section 7.
+
+### Note on paths in execution artifacts
+
+The `runs/` directory contains 76 files total.  Of these, 11 are execution
+records (`execution.json`, one per execution phase) and 33 files contain
+absolute workspace paths recorded at run time on the original machine.
+Many artifact references — such as `stdout.txt`, `stderr.txt`, `junit.xml`,
+`application-snapshot.json`, and `environment.json` — are stored as
+repository-relative paths in the execution records and are fully portable.
+Absolute workspace paths appear in metadata and log *contents* — specifically in
+fields such as `working_directory` within `environment.json`, and in the
+`environment_manifest`, `stdout`, and `stderr` path values in some older
+execution records — because those values were recorded as absolute paths at
+run time.  They have not been rewritten.  Evidence JSON files, test files,
+and source references within evidence records use repository-relative paths.
 
 ---
 

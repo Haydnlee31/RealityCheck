@@ -376,42 +376,313 @@ def compute_verdict(
     reproduction_execution: dict[str, Any],
     verification_execution: dict[str, Any],
     protected_verification: dict[str, Any] | None,
+    *,
+    required_node_ids: list[str],
+    baseline_execution: dict[str, Any] | None = None,
+    reproduction_expectations: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Compute a deterministic verdict.
 
     Parameters
     ----------
     reproduction_execution:
-        The execution record from the reproduction phase.
+        The execution record from the reproduction phase.  Must not be None.
     verification_execution:
-        The execution record from the verification phase.
+        The execution record from the post-repair verification phase.
     protected_verification:
-        The result of ``verify_protected_manifest`` called immediately before
-        or during the verification execution.  Pass ``None`` if the protected
-        manifest has not been created yet.
+        The result of ``verify_protected_manifest``.  A value of ``None``
+        is treated as a hard block — absent protected-manifest verification
+        can never allow a ``verified_for_tested_scenarios`` verdict.
+        Must be a dict with boolean ``ok``, list ``missing``, and list
+        ``modified``.  A structurally invalid result (e.g. ``ok`` is a
+        string, or missing/modified are absent) is treated as a hard block.
+    required_node_ids:
+        Mandatory, non-empty list of canonical pytest node IDs
+        (``path/to/test_file.py::test_function``) that must appear and pass
+        in both the reproduction and verification structured results.
+        An empty list or a missing value is a hard block — a
+        ``verified_for_tested_scenarios`` verdict cannot be issued without
+        knowing which specific tests were required.
+        Matching is exact: ``tests/a.py::test_foo`` is NOT satisfied by
+        ``tests/b.py::test_foo`` even if the function name is the same.
+    baseline_execution:
+        Execution record for the post-repair baseline (existing-tests) run.
+        When supplied, it must show outcome == "passed" with zero failures,
+        errors, and no skips.  Absence of this argument is itself a hard
+        block.
+    reproduction_expectations:
+        Mandatory per-node mapping of ``{node_id: expected_status}`` where
+        ``expected_status`` is either ``"failed"`` (defect test — must fail
+        before repair) or ``"passed"`` (preservation/control test — must
+        already pass before repair).  The mapping must be supplied and
+        non-empty; its keys define the complete required reproduction node
+        set (which must match ``required_node_ids`` exactly).
+        ``"failed"`` means the actual test status must be ``"failed"``
+        (never ``"error"``).  A setup error, teardown error, collection error,
+        or infrastructure error whose per-test status is ``"error"`` always
+        blocks verification, even when the overall outcome is ``"failed"``.
+        ``"passed"`` means the actual test status must be ``"passed"``.
+        ``"skipped"``/``"error"``/missing nodes always block.
+        After repair, every required node must pass during verification
+        regardless of its reproduction expectation.
 
     Returns
     -------
     ``{"status": str, "reason": str, "limitations": list[str]}``
+
+    Enforcement rules
+    -----------------
+    A ``verified_for_tested_scenarios`` verdict requires ALL of the following:
+
+    1. protected_verification is not None, is structurally valid
+       (dict with bool ok, list missing, list modified), and ok is True
+       with both missing and modified empty.
+    2. reproduction_execution is not None (never defaults to success).
+    3. reproduction outcome matches the global expectation derived from the
+       per-node mapping:
+       - all nodes expect "failed" → overall outcome must be "failed";
+       - all nodes expect "passed" → overall outcome must be "passed";
+       - mixed → overall outcome must be "failed" (some defect tests present).
+    4. reproduction outcome must not be "error" or "timeout".
+    5. verification structured_results must be present and free of parse errors.
+    6. At least one test must have been collected (tests > 0).
+    7. No test may be skipped during verification.
+    8. required_node_ids must be non-empty; every listed canonical node ID must
+       be present in the JUnit output by exact path match and must not be
+       skipped or failed.  A same-named function in a different file does NOT
+       satisfy the requirement.
+    9. reproduction_expectations must be supplied and non-empty; every required
+       node must appear in structured reproduction results with its exact
+       expected status:
+       - "failed" expectation → per-test status must be "failed" (never "error");
+       - "passed" expectation → per-test status must be "passed".
+    10. baseline_execution must be supplied (None → blocked).
+    11. baseline_execution outcome must be "passed" and structured results must
+        show zero failures, errors, and skipped tests.
     """
     limitations: list[str] = []
-    sr = verification_execution.get("structured_results", {})
 
-    # --- hard blocks ---
-    if protected_verification is not None and not protected_verification.get("ok"):
-        missing = protected_verification.get("missing", [])
-        modified = protected_verification.get("modified", [])
-        parts = []
-        if missing:
-            parts.append(f"missing: {missing}")
-        if modified:
-            parts.append(f"modified: {modified}")
+    # ------------------------------------------------------------------ #
+    # Rule 0: required_node_ids must be provided and non-empty            #
+    # ------------------------------------------------------------------ #
+    if not required_node_ids:
         return {
             "status": "blocked",
-            "reason": f"Protected input verification failed — {'; '.join(parts)}",
+            "reason": "Required verification test node IDs were not supplied",
             "limitations": limitations,
         }
 
+    # ------------------------------------------------------------------ #
+    # Rule 0b: reproduction_expectations must be supplied and non-empty   #
+    # ------------------------------------------------------------------ #
+    if not reproduction_expectations:
+        return {
+            "status": "blocked",
+            "reason": (
+                "Per-node reproduction_expectations mapping was not supplied or is empty; "
+                "every required node must have an explicit expected status "
+                "('failed' or 'passed')"
+            ),
+            "limitations": limitations,
+        }
+    for nid, exp in reproduction_expectations.items():
+        if exp not in ("failed", "passed"):
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Invalid reproduction expectation {exp!r} for node '{nid}'; "
+                    f"allowed values are 'failed' and 'passed'"
+                ),
+                "limitations": limitations,
+            }
+
+    # ------------------------------------------------------------------ #
+    # Rule 1: protected_verification must be present, structurally valid, #
+    # and ok == True with empty missing and modified lists                #
+    # ------------------------------------------------------------------ #
+    if protected_verification is None:
+        return {
+            "status": "blocked",
+            "reason": "Protected-manifest verification was not supplied",
+            "limitations": limitations,
+        }
+    # Structural validation — must be a dict with boolean ok, list missing, list modified
+    _pv_ok = protected_verification.get("ok") if isinstance(protected_verification, dict) else None
+    _pv_missing = protected_verification.get("missing") if isinstance(protected_verification, dict) else None
+    _pv_modified = protected_verification.get("modified") if isinstance(protected_verification, dict) else None
+    if (
+        not isinstance(protected_verification, dict)
+        or not isinstance(_pv_ok, bool)
+        or not isinstance(_pv_missing, list)
+        or not isinstance(_pv_modified, list)
+    ):
+        return {
+            "status": "blocked",
+            "reason": (
+                "Protected-manifest verification result is structurally invalid — "
+                "must be a dict with boolean 'ok', list 'missing', and list 'modified'"
+            ),
+            "limitations": limitations,
+        }
+    if not _pv_ok:
+        parts = []
+        if _pv_missing:
+            parts.append(f"missing: {_pv_missing}")
+        if _pv_modified:
+            parts.append(f"modified: {_pv_modified}")
+        detail = "; ".join(parts) if parts else "ok is False"
+        return {
+            "status": "blocked",
+            "reason": f"Protected input verification failed — {detail}",
+            "limitations": limitations,
+        }
+    # ok is True — both lists must be empty
+    if _pv_missing or _pv_modified:
+        parts = []
+        if _pv_missing:
+            parts.append(f"missing: {_pv_missing}")
+        if _pv_modified:
+            parts.append(f"modified: {_pv_modified}")
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Protected input verification result is contradictory: "
+                f"ok is True but {'; '.join(parts)}"
+            ),
+            "limitations": limitations,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Rule 2: reproduction_execution must be present                      #
+    # ------------------------------------------------------------------ #
+    if reproduction_execution is None:
+        return {
+            "status": "blocked",
+            "reason": "Reproduction execution was not supplied",
+            "limitations": limitations,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Rule 4: reproduction must not be error or timeout                   #
+    # ------------------------------------------------------------------ #
+    if reproduction_execution["outcome"] in ("error", "timeout"):
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Reproduction execution ended in an infrastructure/error state "
+                f"(outcome: {reproduction_execution['outcome']})"
+            ),
+            "limitations": limitations,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Rule 3: reproduction outcome must match expectation derived from    #
+    # per-node mapping: any "failed" node → overall must be "failed";     #
+    # all "passed" nodes → overall must be "passed".                      #
+    # ------------------------------------------------------------------ #
+    _has_failed_expectation = any(v == "failed" for v in reproduction_expectations.values())
+    _expected_overall = "failed" if _has_failed_expectation else "passed"
+    if reproduction_execution["outcome"] != _expected_overall:
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Reproduction outcome mismatch: expected "
+                f"'{_expected_overall}', got "
+                f"'{reproduction_execution['outcome']}'"
+            ),
+            "limitations": limitations,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Rule 9 (reproduction): validate reproduction structured results     #
+    # and confirm required node IDs have the expected per-test outcome    #
+    # ------------------------------------------------------------------ #
+    rsr = reproduction_execution.get("structured_results") or {}
+    if rsr.get("parse_error"):
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Reproduction structured results could not be parsed: {rsr['parse_error']}"
+            ),
+            "limitations": limitations,
+        }
+    if not rsr or rsr.get("tests", 0) == 0:
+        return {
+            "status": "blocked",
+            "reason": "Reproduction structured results are missing or contain no test cases",
+            "limitations": limitations,
+        }
+
+    # Build exact-match lookup keyed by canonical pytest node ID
+    # JUnit classname uses dots for path separators; name is the function.
+    repro_case_lookup = _build_exact_node_lookup(rsr.get("cases", []))
+
+    for node_id in required_node_ids:
+        expected_repro_status = reproduction_expectations.get(node_id)
+        if expected_repro_status is None:
+            # Node is required but has no expectation entry — block
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required node '{node_id}' has no entry in reproduction_expectations"
+                ),
+                "limitations": limitations,
+            }
+        if node_id not in repro_case_lookup:
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required test node '{node_id}' was not found in "
+                    f"reproduction structured results"
+                ),
+                "limitations": limitations,
+            }
+        repro_status = repro_case_lookup[node_id]
+        if repro_status == "skipped":
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required test node '{node_id}' was skipped during reproduction"
+                ),
+                "limitations": limitations,
+            }
+        if repro_status == "error":
+            # A setup/teardown/collection error is never a reproduced defect —
+            # it is an infrastructure failure regardless of expectation.
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required test node '{node_id}' ended with status 'error' during "
+                    f"reproduction; a setup/teardown/collection error is not a reproduced "
+                    f"behavioral defect — a genuine test failure is required"
+                ),
+                "limitations": limitations,
+            }
+        # Per-node expectation check:
+        # "failed" → status must be "failed" (error already blocked above)
+        # "passed" → status must be "passed"
+        if expected_repro_status == "failed" and repro_status != "failed":
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required test node '{node_id}' did not fail during reproduction "
+                    f"(status: {repro_status!r}); a genuine test failure is required"
+                ),
+                "limitations": limitations,
+            }
+        if expected_repro_status == "passed" and repro_status != "passed":
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required test node '{node_id}' did not pass during reproduction "
+                    f"(status: {repro_status!r}); a passing result is required"
+                ),
+                "limitations": limitations,
+            }
+
+    # ------------------------------------------------------------------ #
+    # Rule 9 / Rule 8: verification execution checks                      #
+    # ------------------------------------------------------------------ #
     if verification_execution["outcome"] == "timeout":
         return {
             "status": "blocked",
@@ -422,33 +693,146 @@ def compute_verdict(
     if verification_execution["outcome"] == "error":
         return {
             "status": "blocked",
-            "reason": f"Verification execution exited with error (exit code {verification_execution['exit_code']})",
+            "reason": (
+                f"Verification execution exited with error "
+                f"(exit code {verification_execution['exit_code']})"
+            ),
             "limitations": limitations,
         }
 
-    # pytest collection failure shows up as exit code 4 (no tests collected)
-    if sr.get("tests", 0) == 0 and not sr.get("parse_error"):
+    # ------------------------------------------------------------------ #
+    # Rule 6: structured results must be parseable                        #
+    # ------------------------------------------------------------------ #
+    sr = verification_execution.get("structured_results") or {}
+    if sr.get("parse_error"):
+        return {
+            "status": "blocked",
+            "reason": f"Verification structured results could not be parsed: {sr['parse_error']}",
+            "limitations": limitations,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Rule 6: at least one test must have been collected                  #
+    # ------------------------------------------------------------------ #
+    if sr.get("tests", 0) == 0:
         return {
             "status": "blocked",
             "reason": "No tests were collected during verification",
             "limitations": limitations,
         }
 
-    if sr.get("skipped", 0) > 0 and sr.get("tests", 0) - sr.get("skipped", 0) == 0:
+    # ------------------------------------------------------------------ #
+    # Rule 8: required node IDs must be present and passing (exact match) #
+    # ------------------------------------------------------------------ #
+    verif_case_lookup = _build_exact_node_lookup(sr.get("cases", []))
+
+    for node_id in required_node_ids:
+        if node_id not in verif_case_lookup:
+            return {
+                "status": "blocked",
+                "reason": (
+                    f"Required test node '{node_id}' was not found in "
+                    f"verification structured results"
+                ),
+                "limitations": limitations,
+            }
+        status = verif_case_lookup[node_id]
+        if status == "skipped":
+            return {
+                "status": "blocked",
+                "reason": f"Required test node '{node_id}' was skipped during verification",
+                "limitations": limitations,
+            }
+        if status in ("failed", "error"):
+            return {
+                "status": "repair_failed",
+                "reason": f"Required test node '{node_id}' {status} during verification",
+                "limitations": limitations,
+            }
+
+    # ------------------------------------------------------------------ #
+    # Rule 7: any skipped test blocks the verdict                         #
+    # ------------------------------------------------------------------ #
+    if sr.get("skipped", 0) > 0:
         return {
             "status": "blocked",
-            "reason": "All required verification tests were skipped",
+            "reason": (
+                f"{sr['skipped']} required verification test(s) were skipped"
+            ),
             "limitations": limitations,
         }
 
-    # --- reproduction must have failed ---
-    if reproduction_execution["outcome"] not in ("failed", "error"):
-        limitations.append(
-            "Reproduction phase did not produce a failure; "
-            "counterexample may not exercise the defect."
-        )
+    # ------------------------------------------------------------------ #
+    # Rule 10 / Rule 11: baseline_execution must be supplied and pass     #
+    # ------------------------------------------------------------------ #
+    if baseline_execution is None:
+        return {
+            "status": "blocked",
+            "reason": "Baseline-preservation execution was not supplied",
+            "limitations": limitations,
+        }
 
-    # --- final verdict ---
+    bsr = baseline_execution.get("structured_results") or {}
+    if bsr.get("parse_error"):
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Baseline structured results could not be parsed: {bsr['parse_error']}"
+            ),
+            "limitations": limitations,
+        }
+
+    if baseline_execution["outcome"] in ("error", "timeout"):
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Baseline execution ended in an infrastructure/error state "
+                f"(outcome: {baseline_execution['outcome']})"
+            ),
+            "limitations": limitations,
+        }
+
+    # Rule 11: baseline outcome must explicitly be "passed"
+    if baseline_execution["outcome"] != "passed":
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Baseline execution outcome is '{baseline_execution['outcome']}'; "
+                f"outcome must be 'passed' for a valid baseline"
+            ),
+            "limitations": limitations,
+        }
+
+    if bsr.get("tests", 0) == 0:
+        return {
+            "status": "blocked",
+            "reason": "No tests were collected during baseline execution",
+            "limitations": limitations,
+        }
+
+    if bsr.get("failures", 0) > 0 or bsr.get("errors", 0) > 0:
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Baseline execution has "
+                f"{bsr.get('failures', 0)} failure(s) and "
+                f"{bsr.get('errors', 0)} error(s)"
+            ),
+            "limitations": limitations,
+        }
+
+    if bsr.get("skipped", 0) > 0:
+        return {
+            "status": "blocked",
+            "reason": (
+                f"Baseline execution has {bsr['skipped']} skipped test(s)"
+            ),
+            "limitations": limitations,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Rule 9: final verification outcome check                            #
+    # ------------------------------------------------------------------ #
     if verification_execution["outcome"] == "passed":
         limitations.append(
             "Verdict covers only the tested scenarios — not all contract requirements."
@@ -464,3 +848,33 @@ def compute_verdict(
         "reason": "Verification execution did not pass",
         "limitations": limitations,
     }
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_exact_node_lookup(cases: list[dict[str, Any]]) -> dict[str, str]:
+    """Build a mapping from canonical pytest node ID to test status.
+
+    JUnit XML stores paths as dot-separated classnames and a separate name
+    attribute.  This function reconstructs the canonical pytest node ID
+    ``path/to/test_file.py::test_function`` so that matching is exact —
+    a same-named function in a different file will NOT produce the same key.
+
+    For a JUnit case produced by pytest the classname is the Python module
+    path (e.g. ``tests.regression.test_rc001_foo``) and the name is the
+    test-function name (e.g. ``test_leading_zero_invoice_no_preserved``).
+    The canonical node ID is reconstructed as
+    ``tests/regression/test_rc001_foo.py::test_leading_zero_invoice_no_preserved``.
+    """
+    lookup: dict[str, str] = {}
+    for c in cases:
+        classname = c.get("classname", "")
+        name = c.get("name", "")
+        # Convert dot-separated module path to file path and append .py
+        file_path = classname.replace(".", "/") + ".py"
+        node_id = f"{file_path}::{name}"
+        lookup[node_id] = c["status"]
+    return lookup

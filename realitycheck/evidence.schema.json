@@ -127,7 +127,7 @@
     },
     "acceptance": {
       "type": "object",
-      "description": "Human developer acceptance checkpoint.",
+      "description": "Human developer acceptance checkpoint. Fields whose names end in '_decision' are reserved for explicit human interface decisions that resolve requirement ambiguities recorded during the acceptance stage.",
       "required": ["decision"],
       "additionalProperties": false,
       "properties": {
@@ -148,6 +148,13 @@
         "protected_manifest": {
           "type": ["string", "null"],
           "description": "Path to the protected manifest file created at acceptance."
+        }
+      },
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*_decision$": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Explicit human decision resolving a requirement ambiguity. Field name must match ^[a-z][a-z0-9_]*_decision$. Value must be a non-empty string."
         }
       }
     },

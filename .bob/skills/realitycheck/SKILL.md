@@ -265,7 +265,11 @@ Before changing application code:
 The finding may be classified as **reproduced** only when:
 
 - the accepted test executed (not collected-but-skipped, not collection error);
-- it failed for the stated application behavior reason (not a test infrastructure issue);
+- each required test's per-test status matches its per-node expectation:
+  - a defect test (expected `"failed"`) must show status `"failed"` — never `"error"`;
+  - a preservation/control test (expected `"passed"`) must show status `"passed"`;
+- a per-test status of `"error"` (pytest setup error, fixture failure, teardown error,
+  or collection error) always blocks — it is not a reproduced behavioral defect;
 - protected inputs remain intact.
 
 **Preserve this reproduction execution permanently. Do not overwrite it after repair.**
@@ -273,7 +277,7 @@ The finding may be classified as **reproduced** only when:
 If reproduction fails for unexpected reasons (wrong error, collection error, skipped):
 - investigate why before proceeding;
 - fix the test if the issue is test infrastructure;
-- do not proceed to repair until the intended failure is observed.
+- do not proceed to repair until each required test shows its expected per-node status.
 
 ---
 
@@ -352,25 +356,68 @@ After repair:
 
 **Verification must NOT emit `verified_for_tested_scenarios` when:**
 
-- protected-manifest verification fails;
+- protected-manifest verification was not supplied or fails;
+- reproduction execution is missing;
+- reproduction outcome does not match expectation (defect must fail; preservation must pass);
+- reproduction ended in error or timeout;
 - required tests were not collected or executed;
 - pytest collection fails;
 - required tests are skipped;
 - any execution times out;
 - the regression test fails;
-- any baseline test fails;
-- required artifacts are missing.
+- any baseline test fails or is skipped;
+- baseline execution is missing;
+- required artifacts are missing;
+- structured results are unparseable.
 
-Use `realitycheck.runner.compute_verdict` for the deterministic verdict:
+Use `realitycheck.runner.compute_verdict` for the deterministic verdict.
+Always supply `required_node_ids`, `baseline_execution`, and `reproduction_expectations`:
 
 ```python
 from realitycheck.runner import compute_verdict
+
+# Build the per-node expectations mapping.
+# Every node in required_node_ids must have an entry.
+# "failed" = defect test that must fail before repair (per-test status must be "failed", never "error")
+# "passed" = preservation/control test already compliant before repair
+reproduction_expectations = {
+    "tests/regression/<file>.py::test_defect_a": "failed",
+    "tests/regression/<file>.py::test_defect_b": "failed",
+    "tests/regression/<file>.py::test_guard_c":  "passed",   # omit if no preservation tests
+}
+
 verdict = compute_verdict(
     reproduction_execution=repro_execution,
     verification_execution=verif_regression,
     protected_verification=manifest_verification_result,
+    required_node_ids=evidence["regression"]["node_ids"],
+    baseline_execution=verif_baseline,
+    reproduction_expectations=reproduction_expectations,
 )
 ```
+
+**`reproduction_expectations` rules:**
+
+- The mapping must be supplied and non-empty — omitting it or passing `{}` is a hard block.
+- Its keys define the complete required reproduction node set.
+- Allowed expected values: `"failed"` and `"passed"` only.
+- Every required node ID must appear as a key.
+- `"failed"` means the actual per-test status must be `"failed"` — a per-test status of
+  `"error"` (setup/teardown/collection error) always blocks, even when the overall outcome
+  is `"failed"` and the process exit code is 1.
+- `"passed"` means the actual per-test status must be `"passed"`.
+- After repair, every required node must pass during verification regardless of its
+  reproduction expectation.
+
+**`protected_verification` structural requirements:**
+
+- Must not be `None` — a `None` value is a hard block.
+- Must be a `dict` with a boolean `ok`, a list `missing`, and a list `modified`.
+- A string `"false"` for `ok` is structurally invalid and blocks.
+- `ok` must be `True`, with both `missing` and `modified` empty.
+- `ok=True` with non-empty `missing` or `modified` is contradictory and blocks.
+
+The `baseline_execution` argument must always be supplied — a `None` value is treated as a hard block.
 
 Only if all checks pass may the verdict be:
 

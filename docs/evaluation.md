@@ -40,8 +40,11 @@ loaded into Bob's context that guides it through a fixed eleven-stage workflow.
 ### Skills
 The skill (`SKILL.md`) encodes the complete workflow protocol: stage ordering,
 acceptance gate language, evidence schema, repair boundary rules, and verdict
-conditions.  Bob cannot skip stages or emit a verdict without the preceding
-stages being satisfied.
+conditions.  The skill instructs the workflow; specific verification invariants
+— protected-manifest integrity, per-node reproduction status, and post-repair
+pass requirements — are enforced deterministically by
+`realitycheck.runner.compute_verdict`, which blocks rather than emits
+`verified_for_tested_scenarios` if any invariant is not satisfied.
 
 ### Parallel investigation via subagents
 At Stage 2, Bob spawns two independent read-only subagents simultaneously:
@@ -65,17 +68,25 @@ At Stage 4, the workflow **stops unconditionally**.  Bob presents:
 - the proposed counterexample (minimal input that exercises the mismatch);
 - the candidate regression test (not yet written to disk).
 
-No file is written until the developer replies `ACCEPT`.  The acceptance
-decision, reviewer identity, and timestamp are recorded in the evidence JSON.
-In every completed run in this repository, the reviewer is recorded as
-`"developer (explicit ACCEPT reply)"`.
+Baseline executions and their artifacts may be written before this checkpoint
+to establish a passing baseline.  Candidate regression tests are neither
+written to disk nor frozen until after the developer replies `ACCEPT`;
+repair evidence is likewise gated by acceptance.
+
+The acceptance decision, reviewer identity, and timestamp are recorded in the
+evidence JSON.  In every completed run in this repository, the reviewer is
+recorded as `"developer (explicit ACCEPT reply)"`.
 
 ### Agent-driven repair
 At Stage 8, Bob applies the smallest change to `sample_app/` that satisfies
-the accepted regression test.  The repair boundary is enforced by the skill
-instructions: protected inputs, the test files, and the contract document must
-not be modified.  The before and after states of `sample_app/` are recorded as
-SHA-256 directory-tree snapshots.
+the accepted regression test.  The repair scope is described by the skill
+instructions — protected inputs, test files, and the contract document must
+not be modified.  The boundary is enforced deterministically by
+`realitycheck.runner`: protected-manifest verification records SHA-256 hashes
+of every protected file before and after repair; any modification causes
+`compute_verdict` to block rather than emit `verified_for_tested_scenarios`.
+The before and after states of `sample_app/` are recorded as SHA-256
+directory-tree snapshots.
 
 ### Deterministic verification
 At Stage 9, Bob calls `realitycheck.runner.run_pytest` and
@@ -158,7 +169,7 @@ regression test.
 
 ## 5. Scenario 2 — Multi-constraint demonstration
 
-Scenario 2 covered three interrelated contract requirements (AC-004, AC-005,
+Scenario 2 covered four interrelated contract requirements (AC-004, AC-005,
 AC-006, AC-007) producing two findings (RC-002 and RC-003) that required
 coordinated repairs to the same files.  Both findings share one protected
 manifest (`runs/rc-002/protected-manifest.json`) and one baseline verification
@@ -299,16 +310,20 @@ task; these values are available from the task-session summary screenshots in
 ### Observations
 
 - The Bob-only control task (`853076…`, ♾ 0.607) consumed fewer Bobcoins than
-  any individual RealityCheck task.  This is consistent with the control
-  producing no structured evidence chain, no subagent investigation, no
-  protected-manifest operations, and no multi-phase execution runs.
+  either RealityCheck finding task (RC-001 at ♾ 2.43 and Scenario 2 at ♾ 5.16).
+  The Scenario 2 baseline setup task (`ee8849…`, ♾ 0.301) is cheaper than the
+  control; it is a short infrastructure task rather than a full finding run.
+  This is consistent with the control producing no structured evidence chain,
+  no subagent investigation, no protected-manifest operations, and no
+  multi-phase execution runs.
 - The RC-001 RealityCheck value (♾ 2.43) reflects only the
   investigation-through-acceptance portion of that session.  The full task
   cost after repair, verification, evidence assembly, and report generation is
   not available as a single final-summary figure and is therefore not stated.
-- Scenario 2 (♾ 5.16) covers two findings (RC-002 and RC-003), three
-  regression tests, and five execution phases, which is consistent with it
-  being the highest single-task Bobcoin value among the completed sessions.
+- Scenario 2 (♾ 5.16) covers two findings (RC-002 and RC-003), four
+  regression tests (1 for RC-002, 3 for RC-003), and five execution phases,
+  which is consistent with it being the highest single-task Bobcoin value
+  among the completed sessions.
 
 ### What is not claimed
 
@@ -395,3 +410,43 @@ observed to be true at the time of the verification execution:
   usage, session duration, or developer interaction count.  A rigorous
   comparison of workflow cost would require instrumenting both approaches on the
   same finding under controlled conditions.
+
+---
+
+## 9. Repair-to-checkpoint mapping
+
+Each repair patch recorded in the evidence JSON corresponds to a Git checkpoint
+(tag or commit) where the repaired application state is the HEAD.  Judges can
+inspect the complete diff at any checkpoint without re-running the workflow.
+
+| Finding | Evidence file | Patch field | Git tag / commit | Description |
+|---|---|---|---|---|
+| RC-001 | `runs/rc-001/evidence.json` | `repair.patch` | `rc001-verified` (`eb7cf86`) | RC-001 repair verified — `str(int(…))` → `str(…)` in `_normalize` |
+| RC-002 | `runs/rc-002/evidence-rc002.json` | `repair.patch` | `rc002-verified` (`2eeacdc`) | RC-002 + RC-003 repairs verified — transaction envelope and source-identity gate |
+| RC-003 | `runs/rc-002/evidence-rc003.json` | `repair.patch` | `rc002-verified` (`2eeacdc`) | Same commit — RC-003 repair is part of the Scenario 2 coordinated repair |
+
+To inspect the RC-001 repair diff:
+
+```bash
+git diff scenario1-baseline rc001-verified -- sample_app/
+```
+
+To inspect the Scenario 2 (RC-002 + RC-003) repair diff:
+
+```bash
+git diff scenario2-baseline rc002-verified -- sample_app/
+```
+
+**Note on paths in execution artifacts:** the `runs/` directory contains 76
+files total.  Of these, 11 are execution records (`execution.json`, one per
+execution phase) and 33 files contain absolute workspace paths recorded at
+run time on the original machine.  Many artifact references — `stdout.txt`,
+`stderr.txt`, `junit.xml`, `application-snapshot.json`, and `environment.json`
+— are stored as repository-relative paths in execution records and are fully
+portable.  Absolute workspace paths appear in metadata and log *contents* —
+specifically in fields such as `working_directory` within `environment.json`,
+and in the `environment_manifest`, `stdout`, and `stderr` path values in some
+older execution records — because those values were recorded as absolute paths
+at run time.  They have not been rewritten.  Evidence JSON files, test files,
+and source files referenced in evidence records use repository-relative paths.
+
