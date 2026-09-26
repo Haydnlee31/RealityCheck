@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "realitycheck/evidence.schema.json",
+  "title": "RealityCheck Evidence Record",
+  "description": "Schema for a single RealityCheck finding. Preserves the complete requirement → reproduction → repair → verification chain.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "finding_id",
+    "requirement",
+    "assumption",
+    "counterexample",
+    "acceptance",
+    "regression",
+    "executions",
+    "repair",
+    "verdict"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version. Always '1.0' for this release."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Identifier grouping all executions for this verification run."
+    },
+    "finding_id": {
+      "type": "string",
+      "description": "Unique identifier for this finding within the run."
+    },
+    "requirement": {
+      "type": "object",
+      "description": "The contract requirement under investigation.",
+      "required": ["id", "text", "classification"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Requirement identifier, e.g. 'AC-001'."
+        },
+        "text": {
+          "type": "string",
+          "description": "Full text of the requirement as written in the contract."
+        },
+        "classification": {
+          "type": "string",
+          "enum": ["documented", "inferred", "ambiguous"],
+          "description": "How confidently the requirement is grounded in documentation."
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "artifact"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["application-contract", "publisher-documentation", "source-notes", "other"],
+                "description": "Distinguishes the type of source document."
+              },
+              "artifact": {
+                "type": "string",
+                "description": "Path or name of the source artifact."
+              },
+              "locator": {
+                "type": "string",
+                "description": "Section heading, line range, or anchor within the artifact."
+              },
+              "excerpt": {
+                "type": "string",
+                "description": "Short verbatim quote or paraphrase from the source."
+              }
+            }
+          }
+        }
+      }
+    },
+    "assumption": {
+      "type": "object",
+      "description": "The implementation assumption identified as diverging from the requirement.",
+      "required": ["description"],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Plain-language description of the assumption."
+        },
+        "code_artifact": {
+          "type": ["string", "null"],
+          "description": "Path to the source file containing the assumption."
+        },
+        "symbol": {
+          "type": ["string", "null"],
+          "description": "Qualified name of the function, class, or symbol."
+        }
+      }
+    },
+    "counterexample": {
+      "type": "object",
+      "description": "A concrete input that demonstrates the divergence.",
+      "required": ["kind", "expected_behavior"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Category of counterexample, e.g. 'input-record'."
+        },
+        "fixture": {
+          "type": ["string", "null"],
+          "description": "Path to the fixture file containing the counterexample."
+        },
+        "record_ids": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Identifiers of the specific records within the fixture."
+        },
+        "expected_behavior": {
+          "type": "string",
+          "description": "What the application should do according to the contract."
+        }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "description": "Human developer acceptance checkpoint.",
+      "required": ["decision"],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["accepted", "rejected", "pending"],
+          "description": "Developer decision on the requirement + counterexample + regression test."
+        },
+        "reviewer": {
+          "type": ["string", "null"],
+          "description": "Identity of the developer who made the acceptance decision."
+        },
+        "timestamp": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the acceptance decision."
+        },
+        "protected_manifest": {
+          "type": ["string", "null"],
+          "description": "Path to the protected manifest file created at acceptance."
+        }
+      }
+    },
+    "regression": {
+      "type": "object",
+      "description": "The regression test accepted to cover this finding.",
+      "required": ["test_artifact", "node_ids", "expected_failure"],
+      "additionalProperties": false,
+      "properties": {
+        "test_artifact": {
+          "type": "string",
+          "description": "Path to the regression test file."
+        },
+        "node_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Pytest node IDs to execute for reproduction and verification."
+        },
+        "expected_failure": {
+          "type": "string",
+          "description": "Plain-language description of the expected failure mode before repair."
+        }
+      }
+    },
+    "executions": {
+      "type": "object",
+      "description": "References to execution artifacts. Reproduction and verification are preserved separately.",
+      "additionalProperties": false,
+      "properties": {
+        "reproduction": {
+          "$ref": "#/$defs/execution_reference"
+        },
+        "verification": {
+          "$ref": "#/$defs/execution_reference"
+        },
+        "baseline": {
+          "$ref": "#/$defs/execution_reference"
+        },
+        "independent": {
+          "$ref": "#/$defs/execution_reference"
+        }
+      }
+    },
+    "repair": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "description": "Information about the repair applied to the application.",
+          "required": ["base_snapshot", "candidate_snapshot"],
+          "additionalProperties": false,
+          "properties": {
+            "base_snapshot": {
+              "type": "string",
+              "description": "Snapshot ID of the application before repair."
+            },
+            "candidate_snapshot": {
+              "type": "string",
+              "description": "Snapshot ID of the application after repair."
+            },
+            "patch": {
+              "type": ["string", "null"],
+              "description": "Unified diff of the repair."
+            }
+          }
+        }
+      ]
+    },
+    "verdict": {
+      "type": "object",
+      "description": "Deterministic verdict derived from execution records.",
+      "required": ["status", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "candidate",
+            "blocked",
+            "reproduced",
+            "repair_failed",
+            "verified_for_tested_scenarios"
+          ],
+          "description": "Verdict status. 'verified_for_tested_scenarios' is the highest positive verdict; no 'production_safe' verdict exists."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Plain-language explanation of why this verdict was reached."
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicit limitations or caveats on the verdict."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "execution_reference": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "description": "Reference to an execution artifact directory.",
+          "required": ["execution_id", "phase", "outcome", "artifact_dir"],
+          "additionalProperties": false,
+          "properties": {
+            "execution_id": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string",
+              "enum": ["baseline", "reproduction", "verification", "independent"]
+            },
+            "outcome": {
+              "type": "string",
+              "enum": ["passed", "failed", "error", "timeout"]
+            },
+            "artifact_dir": {
+              "type": "string",
+              "description": "Relative path to the execution artifact directory."
+            }
+          }
+        }
+      ]
+    }
+  }
+}
