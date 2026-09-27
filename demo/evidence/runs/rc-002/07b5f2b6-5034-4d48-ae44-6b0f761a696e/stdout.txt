@@ -1,0 +1,78 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: /Users/haydn/Documents/RealityCheck
+configfile: pyproject.toml
+plugins: anyio-4.10.0, Flask-Dance-7.1.0
+collected 1 item
+
+tests/regression/test_rc002_batch_atomicity.py F                         [100%]
+
+=================================== FAILURES ===================================
+___________________ test_failed_batch_leaves_no_partial_rows ___________________
+
+db_conn = <sqlite3.Connection object at 0x106c7fe20>
+
+    def test_failed_batch_leaves_no_partial_rows(db_conn):
+        """AC-007: a batch that raises mid-way must not leave partial rows.
+    
+        Setup: one pre-existing record is imported before the batch so we can
+        confirm it survives unchanged (the contract says only *newly inserted*
+        rows from the failing batch must be absent).
+    
+        The batch contains two valid records followed by one record that is
+        missing the required 'unit_price' field.  _normalize() raises
+        KeyError: 'unit_price' on the third record.
+    
+        After the exception the database must contain only the pre-existing row.
+        """
+        # Establish a pre-existing row that must survive unchanged.
+        importer.import_record(db_conn, {
+            "source_record_id": "batch-exist-001",
+            "invoice_no":       "INV-EXIST",
+            "stock_code":       "SKU-E",
+            "quantity":         1,
+            "unit_price":       1.00,
+        })
+    
+        batch = [
+            {
+                "source_record_id": "batch-new-001",
+                "invoice_no":       "INV-BATCH",
+                "stock_code":       "SKU-A",
+                "quantity":         5,
+                "unit_price":       9.99,
+            },
+            {
+                "source_record_id": "batch-new-002",
+                "invoice_no":       "INV-BATCH",
+                "stock_code":       "SKU-B",
+                "quantity":         3,
+                "unit_price":       4.50,
+            },
+            {
+                # Missing 'unit_price' — _normalize() raises KeyError: 'unit_price'
+                "source_record_id": "batch-bad-003",
+                "invoice_no":       "INV-BATCH",
+                "stock_code":       "SKU-C",
+                "quantity":         1,
+            },
+        ]
+    
+        with pytest.raises(KeyError, match="unit_price"):
+            importer.import_records(db_conn, batch)
+    
+        # AC-007: no newly inserted rows from the failed batch may remain.
+        batch_rows = database.get_line_items_by_invoice(db_conn, "INV-BATCH")
+>       assert len(batch_rows) == 0, (
+            f"AC-007 violated — {len(batch_rows)} record(s) from the failed batch "
+            f"remain persisted: {[r['source_record_id'] for r in batch_rows]}"
+        )
+E       AssertionError: AC-007 violated — 2 record(s) from the failed batch remain persisted: ['batch-new-001', 'batch-new-002']
+E       assert 2 == 0
+E        +  where 2 = len([{'id': 2, 'invoice_no': 'INV-BATCH', 'quantity': 5, 'source_record_id': 'batch-new-001', ...}, {'id': 3, 'invoice_no': 'INV-BATCH', 'quantity': 3, 'source_record_id': 'batch-new-002', ...}])
+
+tests/regression/test_rc002_batch_atomicity.py:93: AssertionError
+- generated xml file: /Users/haydn/Documents/RealityCheck/runs/rc-002/07b5f2b6-5034-4d48-ae44-6b0f761a696e/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/regression/test_rc002_batch_atomicity.py::test_failed_batch_leaves_no_partial_rows
+============================== 1 failed in 0.03s ===============================

@@ -1,0 +1,41 @@
+{
+  "created_at": "2026-09-26T08:42:25.630799+00:00",
+  "files": [
+    {
+      "relative_path": "docs/application-contract.md",
+      "sha256": "933c6728e33d35a7b261534877ec4903e2823b1bb4cec75617a9a6be3266f69a"
+    },
+    {
+      "relative_path": "docs/source-notes.md",
+      "sha256": "9d82075c2e7ef82aac7aac0b74a53b6cf6cb1b3ac5ae617f5f6628ffec33c9c1"
+    },
+    {
+      "relative_path": "fixtures/development.jsonl",
+      "sha256": "36f4c908c90b65204772140e835b27b36653d6fba1b6408cfbd9e93807bde9d2"
+    },
+    {
+      "relative_path": "fixtures/manifest.json",
+      "sha256": "79b85d09bf9e19c10e078f1b0bc81b8a19027eb04fe40f0824d462c31fc62d5b"
+    },
+    {
+      "relative_path": "pyproject.toml",
+      "sha256": "b064b298db656268112020464789ab1f8c6a7803edb2f116ae20b83d6da5587a"
+    },
+    {
+      "relative_path": "realitycheck/evidence.schema.json",
+      "sha256": "e5830718197e8c8c448c4be2d6a3493b157e03e94c6722008c9f0bd10c727410"
+    },
+    {
+      "relative_path": "realitycheck/runner.py",
+      "sha256": "56345860aaaf45785f90f6ec4867f67d155a197b384337e25a6f890059192983"
+    },
+    {
+      "relative_path": "tests/existing/test_happy_path.py",
+      "sha256": "d3222bcae7ac2cfa1b733c85c8ca96ae8a3144f99282cf1f94d46d9189a4699b"
+    },
+    {
+      "relative_path": "tests/regression/test_rc001_invoice_no_preservation.py",
+      "sha256": "0885225ac701f9f01bcdfb153f1d2a207b8382aad7443e3d091ea270957a54b4"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.025" timestamp="2026-09-26T16:42:48.598552+08:00" hostname="Lees-Laptop.local"><testcase classname="tests.regression.test_rc001_invoice_no_preservation" name="test_leading_zero_invoice_no_preserved" time="0.002"><failure message="AssertionError: Lookup by original invoice_no='053636' returned no rows — identifier was likely mutated during import&#10;assert 0 == 1&#10; +  where 0 = len([])">db_conn = &lt;sqlite3.Connection object at 0x102edff10&gt;
+
+    def test_leading_zero_invoice_no_preserved(db_conn):
+        """
+        AC-001: invoice_no with a leading zero must survive ingestion unchanged.
+    
+        Counterexample: invoice_no="053636" — str(int("053636")) produces "53636",
+        which is a byte-for-byte different identifier.  The stored value must equal
+        "053636" and a lookup by "053636" must return exactly this record.
+    
+        Expected failure on unmodified application: _normalize() in importer.py
+        applies str(int(...)) which strips the leading zero, so the lookup by
+        "053636" returns zero rows and the len assertion fails.
+        """
+        record = {
+            "source_record_id": "rc-001",
+            "invoice_no": "053636",
+            "stock_code": "ABC",
+            "quantity": 1,
+            "unit_price": 1.00,
+        }
+    
+        importer.import_record(db_conn, record)
+    
+        # Lookup must succeed with the original identifier
+        results = database.get_line_items_by_invoice(db_conn, "053636")
+&gt;       assert len(results) == 1, (
+            "Lookup by original invoice_no='053636' returned no rows — "
+            "identifier was likely mutated during import"
+        )
+E       AssertionError: Lookup by original invoice_no='053636' returned no rows — identifier was likely mutated during import
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/regression/test_rc001_invoice_no_preservation.py:62: AssertionError</failure></testcase></testsuite></testsuites>

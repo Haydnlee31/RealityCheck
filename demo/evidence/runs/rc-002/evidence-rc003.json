@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "run_id": "rc-002",
+  "finding_id": "RC-003",
+  "requirement": {
+    "id": "AC-004 / AC-005 / AC-006",
+    "text": "AC-004: Re-importing the same source_record_id with identical record contents must not create another stored row. AC-005: If an already-seen source_record_id is supplied again with different record contents, the application must fail clearly (ValueError mentioning 'source_record_id'); the original stored row must remain unchanged. AC-006: Two records with different source_record_id values must both be preserved even if all business fields are otherwise identical.",
+    "classification": "documented",
+    "sources": [
+      {
+        "kind": "application-contract",
+        "artifact": "docs/application-contract.md",
+        "locator": "Lines 64–100, sections 'AC-004 — Exact replay safety', 'AC-005 — Source identity conflict', 'AC-006 — Equal business values do not imply duplicate identity'"
+      }
+    ]
+  },
+  "assumption": {
+    "description": "import_record() called insert_line_item() unconditionally. No prior SELECT was performed. No UNIQUE constraint existed on source_record_id. Identical replays created duplicate rows (AC-004 violated). Conflicting re-imports were silently accepted as a second row (AC-005 violated). AC-006 was already compliant by virtue of the schema having no UNIQUE constraint on business fields.",
+    "code_artifact": "sample_app/importer.py",
+    "symbol": "import_record"
+  },
+  "counterexample": {
+    "kind": "input-record",
+    "fixture": null,
+    "record_ids": ["sid-replay-001", "sid-conflict-001", "dup-sid-001", "dup-sid-002"],
+    "expected_behavior": "AC-004: two identical imports of sid-replay-001 must produce exactly 1 stored row. AC-005: re-import of sid-conflict-001 with changed fields must raise ValueError mentioning 'source_record_id'; original row must be unchanged. AC-006: dup-sid-001 and dup-sid-002 with identical business fields must both be independently stored."
+  },
+  "acceptance": {
+    "decision": "accepted",
+    "reviewer": "developer (explicit ACCEPT reply)",
+    "timestamp": "2026-09-26T10:00:00+00:00",
+    "protected_manifest": "runs/rc-002/protected-manifest.json",
+    "ac005_exception_type_decision": "ValueError must be raised for a conflicting reuse of an existing source_record_id, and the exception message must mention 'source_record_id'. This is a developer-accepted interface decision resolving the ambiguity noted in AC-005."
+  },
+  "regression": {
+    "test_artifact": "tests/regression/test_rc003_source_identity_semantics.py",
+    "node_ids": [
+      "tests/regression/test_rc003_source_identity_semantics.py::test_exact_replay_does_not_create_duplicate",
+      "tests/regression/test_rc003_source_identity_semantics.py::test_source_identity_conflict_raises_and_preserves_original",
+      "tests/regression/test_rc003_source_identity_semantics.py::test_distinct_source_record_ids_with_identical_business_fields_both_stored"
+    ],
+    "expected_failure": "test_exact_replay_does_not_create_duplicate: AssertionError: AC-004 violated — 2 row(s) stored for source_record_id 'sid-replay-001'; expected exactly 1. test_source_identity_conflict_raises_and_preserves_original: Failed: DID NOT RAISE <class 'ValueError'>. test_distinct_source_record_ids_…: passes on unmodified application (regression guard)."
+  },
+  "executions": {
+    "reproduction": {
+      "execution_id": "7de07b54-693f-4d45-a422-e42ea3cd543a",
+      "phase": "reproduction",
+      "outcome": "failed",
+      "artifact_dir": "runs/rc-002/7de07b54-693f-4d45-a422-e42ea3cd543a"
+    },
+    "verification": {
+      "execution_id": "8fc097e1-07f1-46ec-b558-8cdf84e7a95f",
+      "phase": "verification",
+      "outcome": "passed",
+      "artifact_dir": "runs/rc-002/8fc097e1-07f1-46ec-b558-8cdf84e7a95f"
+    },
+    "baseline": {
+      "execution_id": "81715fe2-3ecd-4047-90ff-fba8c105b325",
+      "phase": "verification",
+      "outcome": "passed",
+      "artifact_dir": "runs/rc-002/81715fe2-3ecd-4047-90ff-fba8c105b325"
+    }
+  },
+  "repair": {
+    "base_snapshot": "a0efceb71f4b664c039a14166eecf71d80825798c526a758c7a65ca8c5f7a4c1",
+    "candidate_snapshot": "a2beaf7c291ec84f012f65c37006432909e1fc2b87d3e1d59957bfd62f33b395",
+    "patch": "--- a/sample_app/database.py\n+++ b/sample_app/database.py\n+ def get_line_item_by_source_id(conn, source_record_id) -> Optional[dict]:\n+     ...\n--- a/sample_app/importer.py\n+++ b/sample_app/importer.py\n+ def _check_source_identity(conn, normalized):\n+     # AC-004: identical replay -> raise _ExactReplay\n+     # AC-005: conflicting re-import -> raise ValueError\n+ class _ExactReplay(Exception): ...\n+ import_record: pre-INSERT _check_source_identity call added\n+ import_records: transaction envelope added (see RC-002 patch)"
+  },
+  "verdict": {
+    "status": "verified_for_tested_scenarios",
+    "reason": "Verification execution passed all required tests",
+    "limitations": [
+      "Verdict covers only the tested scenarios — not all contract requirements.",
+      "AC-006 was already compliant on the unmodified application; its test is a regression guard only.",
+      "The AC-005 exception type (ValueError) is a developer-accepted interface decision recorded in acceptance.ac005_exception_type_decision."
+    ]
+  }
+}

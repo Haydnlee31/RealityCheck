@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: /Users/haydn/Documents/RealityCheck
+configfile: pyproject.toml
+plugins: anyio-4.10.0, Flask-Dance-7.1.0
+collected 1 item
+
+tests/regression/test_rc002_batch_atomicity.py .                         [100%]
+
+- generated xml file: /Users/haydn/Documents/RealityCheck/runs/rc-002/2bc00fd9-68ae-4246-ad39-4f94dfefd59f/junit.xml -
+============================== 1 passed in 0.01s ===============================

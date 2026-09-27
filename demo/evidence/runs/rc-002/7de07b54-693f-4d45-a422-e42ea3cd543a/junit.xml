@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="3" time="0.032" timestamp="2026-09-26T18:05:38.168227+08:00" hostname="Lees-Laptop.local"><testcase classname="tests.regression.test_rc003_source_identity_semantics" name="test_exact_replay_does_not_create_duplicate" time="0.002"><failure message="AssertionError: AC-004 violated — 2 row(s) stored for source_record_id 'sid-replay-001'; expected exactly 1.&#10;assert 2 == 1&#10; +  where 2 = len([{'id': 1, 'invoice_no': 'INV-REPLAY', 'quantity': 4, 'source_record_id': 'sid-replay-001', ...}, {'id': 2, 'invoice_no': 'INV-REPLAY', 'quantity': 4, 'source_record_id': 'sid-replay-001', ...}])">db_conn = &lt;sqlite3.Connection object at 0x10756bf10&gt;
+
+    def test_exact_replay_does_not_create_duplicate(db_conn):
+        """AC-004: importing the same record twice must leave exactly one stored row.
+    
+        Both calls use byte-for-byte identical payloads.  The second call must be
+        a no-op — it must not insert a second row.
+    
+        Observable check: retrieve all stored line items for the invoice and
+        confirm exactly one row exists with the correct source_record_id.
+    
+        Expected failure on unmodified application:
+            AssertionError: AC-004 violated — 2 row(s) stored for
+            source_record_id 'sid-replay-001'; expected exactly 1.
+        """
+        record = {
+            "source_record_id": "sid-replay-001",
+            "invoice_no":       "INV-REPLAY",
+            "stock_code":       "SKU-R",
+            "quantity":         4,
+            "unit_price":       2.50,
+        }
+    
+        importer.import_record(db_conn, record)
+        importer.import_record(db_conn, record)  # identical replay
+    
+        # Use the public lookup interface to observe the stored state.
+        rows = database.get_line_items_by_invoice(db_conn, "INV-REPLAY")
+    
+&gt;       assert len(rows) == 1, (
+            f"AC-004 violated — {len(rows)} row(s) stored for "
+            f"source_record_id 'sid-replay-001'; expected exactly 1."
+        )
+E       AssertionError: AC-004 violated — 2 row(s) stored for source_record_id 'sid-replay-001'; expected exactly 1.
+E       assert 2 == 1
+E        +  where 2 = len([{'id': 1, 'invoice_no': 'INV-REPLAY', 'quantity': 4, 'source_record_id': 'sid-replay-001', ...}, {'id': 2, 'invoice_no': 'INV-REPLAY', 'quantity': 4, 'source_record_id': 'sid-replay-001', ...}])
+
+tests/regression/test_rc003_source_identity_semantics.py:86: AssertionError</failure></testcase><testcase classname="tests.regression.test_rc003_source_identity_semantics" name="test_source_identity_conflict_raises_and_preserves_original" time="0.001"><failure message="Failed: DID NOT RAISE &lt;class 'ValueError'&gt;">db_conn = &lt;sqlite3.Connection object at 0x10765c6d0&gt;
+
+    def test_source_identity_conflict_raises_and_preserves_original(db_conn):
+        """AC-005: a re-import with the same source_record_id but different content
+        must raise ValueError (mentioning 'source_record_id') and leave the original
+        row unchanged.
+    
+        Exception-type decision: accepted at the human acceptance checkpoint —
+        ValueError, message must mention 'source_record_id'.
+    
+        Observable checks:
+          1. import_record() raises ValueError whose message includes 'source_record_id'.
+          2. Exactly one row remains stored (no silent second insert).
+          3. The stored row retains the original field values byte-for-byte.
+    
+        Expected failure on unmodified application:
+            Failed: DID NOT RAISE &lt;class 'ValueError'&gt;
+            (No conflict detection exists; the conflicting record is silently
+            inserted, so the raises assertion fails immediately.)
+        """
+        original = {
+            "source_record_id": "sid-conflict-001",
+            "invoice_no":       "INV-C",
+            "stock_code":       "SKU-ORIGINAL",
+            "quantity":         5,
+            "unit_price":       9.99,
+        }
+        conflicting = {
+            "source_record_id": "sid-conflict-001",  # same id
+            "invoice_no":       "INV-C",
+            "stock_code":       "SKU-CHANGED",        # different
+            "quantity":         99,                   # different
+            "unit_price":       0.01,                 # different
+        }
+    
+        importer.import_record(db_conn, original)
+    
+        # AC-005: must raise ValueError mentioning source_record_id.
+&gt;       with pytest.raises(ValueError, match="source_record_id"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE &lt;class 'ValueError'&gt;
+
+tests/regression/test_rc003_source_identity_semantics.py:138: Failed</failure></testcase><testcase classname="tests.regression.test_rc003_source_identity_semantics" name="test_distinct_source_record_ids_with_identical_business_fields_both_stored" time="0.002" /></testsuite></testsuites>

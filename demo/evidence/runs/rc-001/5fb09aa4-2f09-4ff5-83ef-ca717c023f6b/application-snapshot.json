@@ -1,0 +1,18 @@
+{
+  "source_dir": "/Users/haydn/Documents/RealityCheck/sample_app",
+  "files": [
+    {
+      "relative_path": "__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "relative_path": "database.py",
+      "sha256": "099f74da33b58d9dadc53b5d78e4bdf7361e77a1992639ef47411a0a4bed89da"
+    },
+    {
+      "relative_path": "importer.py",
+      "sha256": "823e929411d30c058631c60eceb3ec6480b178bf5559a7f50864c3eec2275fed"
+    }
+  ],
+  "snapshot_id": "a0efceb71f4b664c039a14166eecf71d80825798c526a758c7a65ca8c5f7a4c1"
+}
